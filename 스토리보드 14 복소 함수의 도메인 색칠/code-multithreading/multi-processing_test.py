@@ -4,13 +4,39 @@ import sympy as sp
 import numpy as np
 
 function_limit = 10  # this limit is abs() value of complex number.
-quality = 40  # colorline_size ** 2 is total data length.
+quality = 100  # colorline_size ** 2 is total data length.
+display_size = (1024, 640)
+display_rect_start = (262, 70)  # think midpoint for 512, 320 and length for 500.
+display_rect_size = 2
+thr_count = 9 #thread(process) count
+qu_by_thr = 9 #queue divide per thread
 
 z = sp.symbols("z")
 a = sp.symbols("a", real=True, imaginary=False)  # use for real domain
 b = sp.symbols("b", real=True, imaginary=False)  # use for imaginary domain
 x = sp.symbols("x")
 my_sigmoid = (1 / (1 + np.e ** (-30 * x)) - 0.5) * 2
+
+def tuplist_parsing(string):
+    temp = string.split("), (")
+    final = []
+    for line in temp:
+        line = line.strip("[]()")
+        tup = line.split(", ")
+        tup = list(map(float,tup))
+        final.append(tuple(tup))
+    return final
+
+def string_divider(string, div):
+    length = len(string)
+    interval = length // div
+    final = []
+    for i in range(div):
+        if i != div-1:
+            final.append(string[interval * i: interval * (i + 1)])
+        else:
+            final.append(string[interval * i: length])
+    return tuple(final)
 
 def dist(tup):
     return np.sqrt(float((tup[0])**2 + (tup[1])**2))
@@ -108,7 +134,7 @@ funcInput_glob = funcInput_indexer(quality)
 START = 0
 END = quality ** 2
 
-def numeric_work(id, start, end, task_queue,func_real, func_imag):
+def numeric_work(id, start, end, task_queues,func_real, func_imag):
     print(id, "started")
     funcOutput_tmp = []
     funcOutput_dist_exceptInf_tmp = []
@@ -130,12 +156,17 @@ def numeric_work(id, start, end, task_queue,func_real, func_imag):
         x = i % quality
         y = i // quality
         numeric_process(funcInput_glob(x, y))
-    task_queue.put((id,funcOutput_tmp,funcOutput_dist_exceptInf_tmp))
+
+    qu_count = len(task_queues)
+    str_funcOutput = string_divider(str(funcOutput_tmp),qu_count)
+    str_exceptInf = string_divider(str(funcOutput_dist_exceptInf_tmp),qu_count)
+    for i in range(qu_count):
+        task_queues[i].put((id, str_funcOutput[i], str_exceptInf[i]))
     print(id,"ended")
     return
 
 
-def coloring_work(id, start, end, maxDist,task_queue, funcOutput):
+def coloring_work(id, start, end, maxDist,task_queues, funcOutput):
     print(id,"started")
     funcOutput_colorized_tmp= []
     def coloring_process(tup, maxDist):
@@ -145,16 +176,19 @@ def coloring_work(id, start, end, maxDist,task_queue, funcOutput):
 
     for i in range(start, end):
         coloring_process(funcOutput[i], maxDist)
-    task_queue.put(funcOutput_colorized_tmp)
+
+    qu_count = len(task_queues)
+    str_funcOutput_colorized = string_divider(str(funcOutput_colorized_tmp),qu_count)
+    for i in range(qu_count):
+        task_queues[i].put((id, str_funcOutput_colorized[i]))
+    print(id,"ended")
+
+    #task_queues.put(funcOutput_colorized_tmp)
     print(id,"ended")
     return
 
 if __name__ == '__main__':
     timer = time.perf_counter()
-
-    display_size = (1024, 640)
-    display_rect_start = (262, 70)  # think midpoint for 512, 320 and length for 500.
-    display_rect_size = 2
 
     print("all basic math function should be wrote like cos(x) * x + x**2 ")
     # func_str_input = input("please write your function with z.  :")
@@ -175,11 +209,14 @@ if __name__ == '__main__':
     tmp_qu = []
     th = []
     qu = []
-    thr_count = 9
+
     interval = quality ** 2 // thr_count
 
     for i in range(thr_count):
-        qu.append(Queue())
+        qu.append([])
+        for j in range(qu_by_thr):
+            qu[i].append(Queue())
+
     for i in range(thr_count):
         if i != thr_count - 1:
             th.append(Process(target=numeric_work,
@@ -193,15 +230,22 @@ if __name__ == '__main__':
     for i in range(thr_count):
         th[i].join()
     for i in range(thr_count):
-        qu[i].put("STOP")
+        for j in range(qu_by_thr):
+            qu[i][j].put("STOP")
+
 
     for i in range(thr_count):
-        while True:
-            takeout = qu[i].get()
-            if takeout == "STOP":
-                break
-            else:
-                tmp_qu.append(takeout)
+        temp_str = [0,"",""]
+        for j in range(len(qu[i])):
+            while True:
+                takeout = qu[i][j].get()
+                if takeout == "STOP":
+                    break
+                else:
+                    temp_str[0] = takeout[0]
+                    temp_str[1] += takeout[1]
+                    temp_str[2] += takeout[2]
+        tmp_qu.append( (  temp_str[0],tuplist_parsing(temp_str[1]),tuplist_parsing(temp_str[2])  ) )
 
 
     tmp_qu = sorted(tmp_qu, key=lambda tup:tup[0])
@@ -209,18 +253,23 @@ if __name__ == '__main__':
     funcOutput_dist_exceptInf_main = []
     for i in range(thr_count):
         funcOutput_main = funcOutput_main + tmp_qu[i][1]
-        funcOutput_dist_exceptInf_main = funcOutput_dist_exceptInf_main + tmp_qu[i][2]
+        funcOutput_dist_exceptInf_main = funcOutput_dist_exceptInf_main + list(tmp_qu[i][2][0])
     tmp_qu.clear()
     del(th)
     th = []
     del(qu)
     qu = []
 
+
+
+
     maxDist = max(funcOutput_dist_exceptInf_main)
 
-
     for i in range(thr_count):
-        qu.append(Queue())
+        qu.append([])
+        for j in range(qu_by_thr):
+            qu[i].append(Queue())
+
     for i in range(thr_count):
         if i != thr_count - 1:
             th.append(Process(target=coloring_work,
@@ -234,33 +283,38 @@ if __name__ == '__main__':
     for i in range(thr_count):
         th[i].join()
     for i in range(thr_count):
-        qu[i].put("STOP")
+        for j in range(qu_by_thr):
+            qu[i][j].put("STOP")
+
 
     for i in range(thr_count):
-        while True:
-            takeout = qu[i].get()
-            if takeout == "STOP":
-                break
-            else:
-                tmp_qu.append(takeout)
+        temp_str = [0,""]
+        for j in range(len(qu[i])):
+            while True:
+                takeout = qu[i][j].get()
+                if takeout == "STOP":
+                    break
+                else:
+                    temp_str[0] = takeout[0]
+                    temp_str[1] += takeout[1]
+        tmp_qu.append( (  temp_str[0],tuplist_parsing(temp_str[1])  ) )
 
     tmp_qu = sorted(tmp_qu, key=lambda tup: tup[0])
     funcOutput_colorized_main = []
     for i in range(thr_count):
-        funcOutput_colorized_main = funcOutput_colorized_main + tmp_qu[i]
+        funcOutput_colorized_main = funcOutput_colorized_main + tmp_qu[i][1]
+
 
     """
     for i in range(quality):
         for j in range(quality):
-            print(funcOutput[i * quality + j], end="")
+            print(funcOutput_main[i * quality + j], end="")
         print()
     print()
     for i in range(quality):
         for j in range(quality):
-            print(funcOutput_colorized[i * quality + j], end="")
+            print(funcOutput_colorized_main[i * quality + j], end="")
         print()
     """
     print(time.perf_counter() - timer)
-##multiprocessing
-
 
