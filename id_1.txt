@@ -1,0 +1,2 @@
+video id is //id_1//
+video file is too big so it is saved in C drive/document/aa_project_folder.
