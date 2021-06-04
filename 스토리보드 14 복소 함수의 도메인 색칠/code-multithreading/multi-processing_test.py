@@ -4,7 +4,7 @@ import sympy as sp
 import numpy as np
 
 function_limit = 10  # this limit is abs() value of complex number.
-quality = 10  # colorline_size ** 2 is total data length.
+quality = 40  # colorline_size ** 2 is total data length.
 
 z = sp.symbols("z")
 a = sp.symbols("a", real=True, imaginary=False)  # use for real domain
@@ -127,7 +127,6 @@ def numeric_work(id, start, end, task_queue,func_real, func_imag):
 
 
     for i in range(start, end):
-        print(i,"numeric_",id)
         x = i % quality
         y = i // quality
         numeric_process(funcInput_glob(x, y))
@@ -145,7 +144,6 @@ def coloring_work(id, start, end, maxDist,task_queue, funcOutput):
 
 
     for i in range(start, end):
-        print(i, "coloring_", id)
         coloring_process(funcOutput[i], maxDist)
     task_queue.put(funcOutput_colorized_tmp)
     print(id,"ended")
@@ -154,12 +152,9 @@ def coloring_work(id, start, end, maxDist,task_queue, funcOutput):
 if __name__ == '__main__':
     timer = time.perf_counter()
 
-
     display_size = (1024, 640)
     display_rect_start = (262, 70)  # think midpoint for 512, 320 and length for 500.
     display_rect_size = 2
-
-
 
     print("all basic math function should be wrote like cos(x) * x + x**2 ")
     # func_str_input = input("please write your function with z.  :")
@@ -172,63 +167,87 @@ if __name__ == '__main__':
     func_real, func_imag = func_syp.as_real_imag()
     # (a**2 - b**2, 2*a*b) for (real, imag)
 
-
-
     funcOutput_main = []
     funcOutput_colorized_main = []
     funcOutput_dist_exceptInf_main = []
 
     ##threading
-    task_queue = Queue()
-    temp_tasklist = []
-    th1 = Process(target=numeric_work, args=(1, START, END // 2,task_queue,func_real, func_imag))
-    th2 = Process(target=numeric_work, args=(2, END // 2, END,task_queue,func_real, func_imag))
-    th1.start()
-    th2.start()
-    th1.join()
-    th2.join()
-    task_queue.put("STOP")
+    tmp_qu = []
+    th = []
+    qu = []
+    thr_count = 9
+    interval = quality ** 2 // thr_count
 
-    while True:
-        takeout = task_queue.get()
-        if takeout == "STOP":
-            print("?")
-            break
+    for i in range(thr_count):
+        qu.append(Queue())
+    for i in range(thr_count):
+        if i != thr_count - 1:
+            th.append(Process(target=numeric_work,
+                            args=(i, interval * i, interval * (i + 1), qu[i], func_real, func_imag)))
         else:
-            print("!")
-            temp_tasklist.append(takeout)
+            th.append(Process(target=numeric_work,
+                            args=(i, interval * i, END, qu[i], func_real, func_imag)))
 
-    temp_tasklist = sorted(temp_tasklist, key=lambda tup:tup[0])
-    funcOutput_main = temp_tasklist[0][1] + temp_tasklist[1][1]
-    funcOutput_dist_exceptInf_main = temp_tasklist[0][2] + temp_tasklist[1][2]
-    temp_tasklist.clear()
-    del(th1)
-    del(th2)
+    for i in range(thr_count):
+        th[i].start()
+    for i in range(thr_count):
+        th[i].join()
+    for i in range(thr_count):
+        qu[i].put("STOP")
+
+    for i in range(thr_count):
+        while True:
+            takeout = qu[i].get()
+            if takeout == "STOP":
+                break
+            else:
+                tmp_qu.append(takeout)
+
+
+    tmp_qu = sorted(tmp_qu, key=lambda tup:tup[0])
+    funcOutput_main = []
+    funcOutput_dist_exceptInf_main = []
+    for i in range(thr_count):
+        funcOutput_main = funcOutput_main + tmp_qu[i][1]
+        funcOutput_dist_exceptInf_main = funcOutput_dist_exceptInf_main + tmp_qu[i][2]
+    tmp_qu.clear()
+    del(th)
+    th = []
+    del(qu)
+    qu = []
 
     maxDist = max(funcOutput_dist_exceptInf_main)
 
-    th1 = Process(target=coloring_work, args=(1, START, END // 2, maxDist,task_queue, funcOutput_main))
-    th2 = Process(target=coloring_work, args=(2, END // 2, END, maxDist, task_queue, funcOutput_main))
 
-    th1.start()
-    th2.start()
-    th1.join()
-    th2.join()
-    task_queue.put("STOP")
-
-    while True:
-        takeout = task_queue.get()
-        if takeout == "STOP":
-            print("?")
-            break
+    for i in range(thr_count):
+        qu.append(Queue())
+    for i in range(thr_count):
+        if i != thr_count - 1:
+            th.append(Process(target=coloring_work,
+                              args=(i, interval * i, interval * (i + 1), maxDist, qu[i], funcOutput_main)))
         else:
-            print("!")
-            temp_tasklist.append(takeout)
+            th.append(Process(target=coloring_work,
+                              args=(i, interval * i, END, maxDist, qu[i], funcOutput_main)))
 
-    temp_tasklist = sorted(temp_tasklist, key=lambda tup: tup[0])
-    funcOutput_colorized_main =temp_tasklist[0] + temp_tasklist[1]
-    ##threading
+    for i in range(thr_count):
+        th[i].start()
+    for i in range(thr_count):
+        th[i].join()
+    for i in range(thr_count):
+        qu[i].put("STOP")
 
+    for i in range(thr_count):
+        while True:
+            takeout = qu[i].get()
+            if takeout == "STOP":
+                break
+            else:
+                tmp_qu.append(takeout)
+
+    tmp_qu = sorted(tmp_qu, key=lambda tup: tup[0])
+    funcOutput_colorized_main = []
+    for i in range(thr_count):
+        funcOutput_colorized_main = funcOutput_colorized_main + tmp_qu[i]
 
     """
     for i in range(quality):
