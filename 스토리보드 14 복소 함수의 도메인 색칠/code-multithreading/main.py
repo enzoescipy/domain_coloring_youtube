@@ -3,7 +3,7 @@ import sympy as sp
 import numpy as np
 
 function_limit = 100  # this limit is abs() value of complex number.
-quality = 200  # colorline_size ** 2 is total data length.
+quality = 100  # colorline_size ** 2 is total data length.
 display_size = (1024, 640)
 display_rect_start = (262, 70)  # think midpoint for 512, 320 and length for 500.
 display_rect_size = 5
